@@ -1,6 +1,6 @@
 # Crea gli installatori di Viator per Windows, macOS e Linux.
-# Parte da solo quando pubblichi un tag di versione (es. v0.3.0) e allega i file
-# a una "Release" di GitHub. Si può anche avviare a mano dalla scheda "Actions".
+# Parte da solo quando pubblichi una release con un tag di versione (es. v0.3.0)
+# e allega i file alla release. Si può anche avviare a mano dalla scheda "Actions".
 name: Installatori
 
 on:
@@ -14,25 +14,26 @@ permissions:
 jobs:
   build:
     strategy:
-      fail-fast: false
+      fail-fast: false   # se una piattaforma fallisce, le altre continuano
       matrix:
         include:
           - os: windows-latest
             name: windows
           - os: macos-latest      # Mac con chip Apple
-            name: macos-arm64
-          - os: macos-13          # Mac con processore Intel
-            name: macos-intel
+            name: macos
           - os: ubuntu-22.04      # versione meno recente: funziona su più distribuzioni
             name: linux
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.name }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
 
       - name: Windows
         if: runner.os == 'Windows'
@@ -43,9 +44,7 @@ jobs:
 
       - name: macOS
         if: runner.os == 'macOS'
-        run: |
-          bash packaging/macos/build_macos.sh
-          cd dist/installer && for f in *.dmg; do mv "$f" "${f%.dmg}-${{ matrix.name }}.dmg"; done
+        run: bash packaging/macos/build_macos.sh
 
       - name: Linux
         if: runner.os == 'Linux'
@@ -61,7 +60,8 @@ jobs:
 
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    # pubblica gli installatori riusciti anche se una piattaforma è fallita
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -71,4 +71,4 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: installers/*
-          generate_release_notes: true
+          fail_on_unmatched_files: false
