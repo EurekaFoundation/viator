@@ -1,0 +1,74 @@
+# Crea gli installatori di Viator per Windows, macOS e Linux.
+# Parte da solo quando pubblichi un tag di versione (es. v0.3.0) e allega i file
+# a una "Release" di GitHub. Si può anche avviare a mano dalla scheda "Actions".
+name: Installatori
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+          - os: macos-latest      # Mac con chip Apple
+            name: macos-arm64
+          - os: macos-13          # Mac con processore Intel
+            name: macos-intel
+          - os: ubuntu-22.04      # versione meno recente: funziona su più distribuzioni
+            name: linux
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Windows
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          if not exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" choco install innosetup -y --no-progress
+          call packaging\windows\build_windows.bat
+
+      - name: macOS
+        if: runner.os == 'macOS'
+        run: |
+          bash packaging/macos/build_macos.sh
+          cd dist/installer && for f in *.dmg; do mv "$f" "${f%.dmg}-${{ matrix.name }}.dmg"; done
+
+      - name: Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2 libxkbcommon-x11-0 libxcb-cursor0 libegl1 libnss3
+          bash packaging/linux/build_linux.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: viator-${{ matrix.name }}
+          path: dist/installer/*
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: installers/*
+          generate_release_notes: true
